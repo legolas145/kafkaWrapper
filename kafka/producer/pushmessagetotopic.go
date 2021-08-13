@@ -7,19 +7,6 @@ import (
 )
 
 func (k *KafkaProducer) PushMessageToTopic(msg interface{}, partition int32) error {
-	//Log the message delivery status
-	go func() {
-		for e := range k.producer.Events() {
-			switch ev := e.(type) {
-			case *kafka.Message:
-				if ev.TopicPartition.Error != nil {
-					k.l.Debug("Kafka Producer Delivery failed: %v\n", ev.TopicPartition)
-				} else {
-					k.l.Debug("Kafka Producer Delivered message to %v\n", ev.TopicPartition)
-				}
-			}
-		}
-	}()
 
 	bytes, err := json.Marshal(msg)
 

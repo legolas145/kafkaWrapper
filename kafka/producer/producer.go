@@ -36,7 +36,7 @@ type KafkaProducer struct {
 }
 
 func NewKafkaProducer(l *log.Logger, config *KafkaProducerConfig) (IKafkaProducer, error) {
-	group := &KafkaProducer{}
+	producerWrapper := &KafkaProducer{}
 	//Checking for errors
 	if len(config.BrokerURLs) == 0 {
 		return nil, errEmptyBrokerURLs
@@ -59,22 +59,36 @@ func NewKafkaProducer(l *log.Logger, config *KafkaProducerConfig) (IKafkaProduce
 	}
 
 	//Constructing the kafka producer
-	group.name = config.Name
-	group.brokerURLs = strings.Join(config.BrokerURLs, ",")
-	group.l = l
-	group.topicToPush = config.TopicToPush
-	group.securityProtocol = config.SecurityProtocol
+	producerWrapper.name = config.Name
+	producerWrapper.brokerURLs = strings.Join(config.BrokerURLs, ",")
+	producerWrapper.l = l
+	producerWrapper.topicToPush = config.TopicToPush
+	producerWrapper.securityProtocol = config.SecurityProtocol
 
 	producer, err := kafka.NewProducer(&kafka.ConfigMap{
-		BootStrapServersKey: group.brokerURLs,
-		SecurityProtocolKey: group.securityProtocol,
+		BootStrapServersKey: producerWrapper.brokerURLs,
+		SecurityProtocolKey: producerWrapper.securityProtocol,
 	})
 	if err != nil {
 		l.Error("Error in creating kafka producer", err)
 		return nil, err
 	}
 
-	group.producer = producer
+	producerWrapper.producer = producer
 
-	return group, nil
+	//Go routine for listening to delivery stats
+	go func() {
+		for e := range producerWrapper.producer.Events() {
+			switch ev := e.(type) {
+			case *kafka.Message:
+				if ev.TopicPartition.Error != nil {
+					producerWrapper.l.Info("Kafka Producer Delivery failed Error:", ev.TopicPartition.Error, " Producer: ", producerWrapper.name, " Topic: ", producerWrapper.topicToPush, " Partition: ", ev.TopicPartition, " Msg ", string(ev.Value), " Key ", string(ev.Key))
+				} else {
+					producerWrapper.l.Info("Kafka Producer Delivery successfull Producer:", producerWrapper.name, " Topic: ", producerWrapper.topicToPush, " Partition: ", ev.TopicPartition, " Msg ", string(ev.Value), " Key ", string(ev.Key))
+				}
+			}
+		}
+	}()
+
+	return producerWrapper, nil
 }
